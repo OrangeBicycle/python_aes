@@ -1,10 +1,26 @@
 import secrets
+import io
 from ctypes import c_ubyte
 
-class AESCipher:
+class AESKey:
 	def __init__(self):
+		self.length = 128
+		self.byte_length = int(self.length/8)
+		self.K = [c_ubyte(0)]*self.byte_length
+	def generate(self):
+		self.K = [c_ubyte(secrets.randbits(8)) for i in range(int(128/8))]
+	def display(self):
+		for bit in self.K:
+			print('%d ' % bit.value)
+	def write(self, f):
+		with open(f, 'w') as output:
+			output.write('ACLAES:', (bit.value for bit in self.K))
+	def key(self):
+		return self.K
+class AESCipher:
+	def __init__(self, key=None):
 		self.length  = 128
-		self.K       = [c_ubyte(0)]*self.length
+		self.K       = [c_ubyte(0)]*self.length if key==None else key
 		self.Nb      = {128:4, 192:4, 256:4}
 		self.Nk      = {128:4, 192:6, 256:8}
 		self.Nr      = {128:10, 192:12, 256:14}
@@ -13,7 +29,7 @@ class AESCipher:
 		if i == 0:
 			return c_ubyte(0x8d)
 		else:
-			return c_ubyte((self.Rcon(i-1)<<1)^(0x11b & -(self.Rcon(i-1)>>7)))
+			return c_ubyte((self.Rcon(i-1).value<<1)^(0x11b & -(self.Rcon(i-1).value>>7)))
 	def fieldmultiply(self, a, b):
 		p = c_ubyte(0)
 
@@ -71,7 +87,7 @@ class AESCipher:
 			temp = w[i-1]
 			if i%self.Nk[self.length] == 0:
 				temp = self.SubWord(self.RotWord(temp))
-				temp[0] = c_ubyte(temp[0].value^self.RCon(i/self.Nk[self.length]).value)
+				temp[0] = c_ubyte(temp[0].value^self.Rcon(i/self.Nk[self.length]).value)
 			elif self.Nk[self.length] > 6 and i%self.Nk[self.length] == 4:
 				temp = self.SubWord(temp)
 			w[i] = [c_ubyte(w[i-self.Nk[self.length]][0].value^temp[0].value),
@@ -79,8 +95,14 @@ class AESCipher:
 				c_ubyte(w[i-self.Nk[self.length]][2].value^temp[2].value),
 				c_ubyte(w[i-self.Nk[self.length]][3].value^temp[3].value)]
 		return w
-	def AddRoundKey(self):
-		pass
+	def AddRoundKey(self, state, w):
+		state_prime = [[c_ubyte(0)]*self.Nb[self.length]]*4
+		for i in range(self.Nb[self.length]):
+			state_prime[0][i] = c_ubyte(state[0][i].value^w[i][0].value)	
+			state_prime[1][i] = c_ubyte(state[1][i].value^w[i][1].value)	
+			state_prime[2][i] = c_ubyte(state[2][i].value^w[i][2].value)	
+			state_prime[3][i] = c_ubyte(state[3][i].value^w[i][3].value)
+		return state_prime	
 	def MixColumns(self, state):
 		state_prime = [[c_ubyte(0)]*self.Nb[self.length]]*4
 		if self.inverse == False:
@@ -109,9 +131,9 @@ class AESCipher:
 				state_prime = c_ubyte(self.sbox(state[x][y].value))
 		return state_prime
 	def SubWord(self, wrd):
-		pass
+		return [c_ubyte(self.sbox(wrd[i].value)) for i in range(4)]
 	def RotWord(self, wrd):
-		pass
+		return [wrd[3]]+wrd[0:3]
 	def Cipher(self, _in):
 		## Input:
 		##	_in: input, and array of bytes of length 4*self.Nb[self.length]
@@ -124,15 +146,15 @@ class AESCipher:
 		for byte in _in:
 			state[which_row%4][which_column] = byte
 			which_row+=1
-			if which_row%4 = 0:
+			if which_row%4 == 0:
 				which_column+=1
 		
-		state = self.AddRoundKey(state, w[self.Nr[self.length]*self.Nb[self.length]:(self.Nr[self.length]+1)*self.Nb[self.length]])
+		state = self.AddRoundKey(state, w[0:self.Nb[self.length]])
 		for r in range(1, self.Nr[self.length]):
 			state = self.SubBytes(state)
 			state = self.ShiftRows(state)
 			state = self.MixColumns(state)
-			state = self.AddRoundKey(state, w[self.Nr[self.length]*self.Nb[self.length]:(self.Nr[self.length]+1)*self.Nb[self.length]])
+			state = self.AddRoundKey(state, w[r*self.Nb[self.length]:(r+1)*self.Nb[self.length]])
 		state = self.SubBytes(state)
 		state = self.ShiftRows(state)
 		state = self.AddRoundKey(state, w[self.Nr[self.length]*self.Nb[self.length]:(self.Nr[self.length]+1)*self.Nb[self.length]])
@@ -149,5 +171,26 @@ class AESCipher:
 			which_byte+=1
 		return out
 class BlockCipher:
-	def __init__(self):
-		self.mode = 'ECB'		
+	def __init__(self, key=None):
+		self.mode = 'ECB'
+		self.aes  = AESCipher(key=key)
+	def cipher(self, m, encrypt=True):
+		_in = []
+		for c in m:
+			_in.append(c_ubyte(ord(c)))
+		blocks = int(len(_in)/16)
+		if blocks < 1:
+			_in = _in+[c_ubyte(0)]*(16-len(_in))
+			blocks = 1 
+		self.aes.inverse = False if encrypt else True
+		_out = []
+		for i in range(blocks):
+			_out.append(self.aes.Cipher(_in[16*(i-1):16*i]))
+		return _out
+if __name__=='__main__':
+	k = AESKey()
+	k.generate()
+	k.display()
+	bc = BlockCipher(key=k.key())
+	print(bc.cipher('hello'))
+	
