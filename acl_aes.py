@@ -79,38 +79,45 @@ class AESCipher:
 			0xA0, 0xE0, 0x3B, 0x4D, 0xAE, 0x2A, 0xF5, 0xB0, 0xC8, 0xEB, 0xBB, 0x3C, 0x83, 0x53, 0x99, 0x61,
 			0x17, 0x2B, 0x04, 0x7E, 0xBA, 0x77, 0xD6, 0x26, 0xE1, 0x69, 0x14, 0x63, 0x55, 0x21, 0x0C, 0x7D][b]
 	def KeyExpansion(self):
+		flag = self.inverse
+		self.inverse = False
 		temp = [c_ubyte(0), c_ubyte(0), c_ubyte(0), c_ubyte(0)]
 		w    = [c_ubyte(0)]*(self.Nb[self.length]*(self.Nr[self.length]+1))
 		for i in range(self.Nk[self.length]):
 			w[i] = [self.K[4*i], self.K[4*i+1], self.K[4*i+2], self.K[4*i+3]]
 		for i in range(self.Nk[self.length], self.Nb[self.length]*(self.Nr[self.length]+1)):
 			temp = w[i-1]
-			#print('i=%d temp=' % i)
-			#self.printword(temp)
+			print('i=%d temp=' % i)
+			self.printword(temp)
 			if i%self.Nk[self.length] == 0:
-				#print('RotWord(temp)=')
-				#self.printword(self.RotWord(temp))
+				print('RotWord(temp)=')
+				self.printword(self.RotWord(temp))
 				temp = self.SubWord(self.RotWord(temp))
-				#print('SubWord(RotWord(temp))=')
-				#self.printword(temp)
+				print('SubWord(RotWord(temp))=')
+				self.printword(temp)
 				temp[0] = c_ubyte(temp[0].value^self.Rcon(i/self.Nk[self.length]).value)
-				#print('RCon^temp=')
-				#self.printword(temp)
+				print('RCon^temp=')
+				self.printword(temp)
 			elif self.Nk[self.length] > 6 and i%self.Nk[self.length] == 4:
 				temp = self.SubWord(temp)
 			w[i] = [c_ubyte(w[i-self.Nk[self.length]][0].value^temp[0].value),
 				c_ubyte(w[i-self.Nk[self.length]][1].value^temp[1].value),
 				c_ubyte(w[i-self.Nk[self.length]][2].value^temp[2].value),
 				c_ubyte(w[i-self.Nk[self.length]][3].value^temp[3].value)]
+		self.inverse = flag
+		'''
 		if self.inverse:
-			dw = [c_ubyte(0)]*(self.Nb[self.length]*(self.Nr[self.length+1))
+			dw = [c_ubyte(0)]*(self.Nb[self.length]*(self.Nr[self.length]+1))
 			for i in range((self.Nr[self.length]+1)*self.Nb[self.length]):
 				dw[i] = w[i]
 			for r in range(1, self.Nr[self.length]):
-				self.MixColumns(dw[r*self.Nb[self.length]:(r+1)*self.Nb[self.length]])
+				dw[r*self.Nb[self.length]:(r+1)*self.Nb[self.length]] = self.MixColumns(dw[r*self.Nb[self.length]:(r+1)*self.Nb[self.length]])
 			return dw
 		else:
 			return w
+		#self.inverse = flag
+		'''
+		return w
 	def printword(self, w):
 		print('{0} {1} {2} {3}'.format(hex(w[0].value), hex(w[1].value), hex(w[2].value), hex(w[3].value)))
 	def AddRoundKey(self, state, w):
@@ -161,34 +168,63 @@ class AESCipher:
 		state = [[c_ubyte(0)]*self.Nb[self.length]]*4
 		self.printstate(state)
 		w = self.KeyExpansion()
+		print('W:')
+		for entry in w:
+			self.printword(entry)
 		for i in range(4):
 			state[i] = [_in[i], _in[i+4], _in[i+(2*4)], _in[i+(3*4)]]
 		print('BEGIN')
 		self.printstate(state)
 		
-		state = self.AddRoundKey(state, w[0:self.Nb[self.length]])
+		if self.inverse:
+			step = -1
+			rnge = (self.Nr[self.length]-1, 0)
+			state = self.AddRoundKey(state, w[self.Nr[self.length]*self.Nb[self.length]:(self.Nr[self.length]+1)*self.Nb[self.length]])
+		else:
+			step = 1
+			rnge = (1, self.Nr[self.length])
+			state = self.AddRoundKey(state, w[0:self.Nb[self.length]])
 		print('AddRoundKey %d' % 0)
 		self.printstate(state)
-		for r in range(1, self.Nr[self.length]):
-			state = self.SubBytes(state)
-			print('SUBBYTES %d' % r)
-			self.printstate(state)
+		for r in range(rnge[0], rnge[1], step):
+			if self.inverse:
+				state = self.ShiftRows(state)
+				print('SHIFTROWS %d' % r)
+				self.printstate(state)
+				state = self.SubBytes(state)
+				print('SUBBYTES %d' % r)
+				self.printstate(state)
+				state = self.AddRoundKey(state, w[r*self.Nb[self.length]:(r+1)*self.Nb[self.length]])
+				print('ADDROUNDKEY %d' % r)
+				self.printstate(state)
+				state = self.MixColumns(state)
+				print('MIXCOLUMNS %d' % r)
+				self.printstate(state)
+			else:
+				state = self.SubBytes(state)
+				print('SUBBYTES %d' % r)
+				self.printstate(state)
+				state = self.ShiftRows(state)
+				print('SHIFTROWS %d' % r)
+				self.printstate(state)
+				state = self.MixColumns(state)
+				print('MIXCOLUMNS %d' % r)
+				self.printstate(state)
+				state = self.AddRoundKey(state, w[r*self.Nb[self.length]:(r+1)*self.Nb[self.length]])
+				print('ADDROUNDKEY %d' % r)
+				self.printstate(state)
+		if self.inverse:
 			state = self.ShiftRows(state)
-			print('SHIFTROWS %d' % r)
+			state = self.SubBytes(state)
+			state = self.AddRoundKey(state, w[0:self.Nb[self.length]])
+		else:
+			state = self.SubBytes(state)
+			print('SUBBYTES FINAL')
 			self.printstate(state)
-			state = self.MixColumns(state)
-			print('MIXCOLUMNS %d' % r)
+			state = self.ShiftRows(state)	
+			print('SHIFTROWS FINAL')
 			self.printstate(state)
-			state = self.AddRoundKey(state, w[r*self.Nb[self.length]:(r+1)*self.Nb[self.length]])
-			print('ADDROUNDKEY %d' % r)
-			self.printstate(state)
-		state = self.SubBytes(state)
-		print('SUBBYTES FINAL')
-		self.printstate(state)
-		state = self.ShiftRows(state)	
-		print('SHIFTROWS FINAL')
-		self.printstate(state)
-		state = self.AddRoundKey(state, w[self.Nr[self.length]*self.Nb[self.length]:(self.Nr[self.length]+1)*self.Nb[self.length]])		
+			state = self.AddRoundKey(state, w[self.Nr[self.length]*self.Nb[self.length]:(self.Nr[self.length]+1)*self.Nb[self.length]])		
 		print('ADDROUNDKEY FINAL')
 		self.printstate(state)
 		'''
@@ -220,15 +256,14 @@ class BlockCipher:
 	def __init__(self, key=None):
 		self.mode = 'ECB'
 		self.aes  = AESCipher(key=key)
-	def cipher(self, m, encrypt=True):
+	def ecb(self, m, encrypt=True):
 		_in = []
 		for c in m:
 			_in.append(c_ubyte(ord(c)))
 			print('orig {0} ord {1} chr {2} hex {3}'.format(c, ord(c), chr(ord(c)), hex(ord(c))))
+		if len(_in)%16 != 0:
+			_in = _in+[c_ubyte(0)]*(16-(len(_in)%16))
 		blocks = int(len(_in)/16)
-		if blocks < 1:
-			_in = _in+[c_ubyte(0)]*(16-len(_in))
-			blocks = 1 
 		self.aes.inverse = False if encrypt else True
 		print('AES INVERSE %s' % self.aes.inverse)
 		_out = []
@@ -238,6 +273,17 @@ class BlockCipher:
 		for c in _out:
 			_chr.append(chr(c.value))
 		return _chr
+	def cbc(self, m, encrypt=True):
+		_in = []
+		for c in m:
+			_in.append(c_ubyte(ord(c)))
+			print('orig {0} ord {1} chr {2} hex {3}'.format(c, ord(c), chr(ord(c)), hex(ord(c))))
+		if len(_in)%16 != 0:
+			_in = _in+[c_ubyte(0)]*(16-(len(_in)%16))
+		blocks = int(len(_in)/16)
+		self.aes.inverse = False if encrypt else True
+		print('AES INVERSE %s' % self.aes.inverse)
+		
 if __name__=='__main__':
 	k = AESKey()
 	k.generate()
@@ -248,12 +294,19 @@ if __name__=='__main__':
 	bc = BlockCipher(key=k.key())
 	ori = [c_ubyte(0x32), c_ubyte(0x43), c_ubyte(0xf6), c_ubyte(0xa8), c_ubyte(0x88), c_ubyte(0x5a), c_ubyte(0x30), c_ubyte(0x8d),
 		c_ubyte(0x31), c_ubyte(0x31), c_ubyte(0x98), c_ubyte(0xa2), c_ubyte(0xe0), c_ubyte(0x37), c_ubyte(0x07), c_ubyte(0x34)]
+	'''
+	'''
+	k.K = [c_ubyte(0x00), c_ubyte(0x01), c_ubyte(0x02), c_ubyte(0x03), c_ubyte(0x04), c_ubyte(0x05), c_ubyte(0x06), c_ubyte(0x07),
+		c_ubyte(0x08), c_ubyte(0x09), c_ubyte(0x0a), c_ubyte(0x0b), c_ubyte(0x0c), c_ubyte(0x0d), c_ubyte(0x0e), c_ubyte(0x0f)]
+	bc = BlockCipher(key=k.key())
+	ori = [c_ubyte(0x00), c_ubyte(0x11), c_ubyte(0x22), c_ubyte(0x33), c_ubyte(0x44), c_ubyte(0x55), c_ubyte(0x66), c_ubyte(0x77),
+		c_ubyte(0x88), c_ubyte(0x99), c_ubyte(0xaa), c_ubyte(0xbb), c_ubyte(0xcc), c_ubyte(0xdd), c_ubyte(0xee), c_ubyte(0xff)]
 	for i in range(len(ori)):
 		ori[i] = chr(ori[i].value)
 	'''
 	ori = 'hello'
 	bc = BlockCipher(key=k.key())
-	ciphertext = bc.cipher(ori, encrypt=True)
-	plaintext = bc.cipher(ciphertext, encrypt=False)
+	ciphertext = bc.ecb(ori, encrypt=True)
+	plaintext = bc.ecb(ciphertext, encrypt=False)
 	print('Ciphertext %s' % ciphertext)
 	print('Plaintext %s' % plaintext)	
