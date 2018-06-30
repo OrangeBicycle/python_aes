@@ -268,7 +268,7 @@ class BlockCipher:
 		print('AES INVERSE %s' % self.aes.inverse)
 		_out = []
 		for i in range(blocks):
-			_out.extend(self.aes.Cipher(_in[16*(i-1):16*(i+1)]))
+			_out.extend(self.aes.Cipher(_in[16*i:16*(i+1)]))
 		_chr = []
 		for c in _out:
 			_chr.append(chr(c.value))
@@ -283,6 +283,111 @@ class BlockCipher:
 		blocks = int(len(_in)/16)
 		self.aes.inverse = False if encrypt else True
 		print('AES INVERSE %s' % self.aes.inverse)
+		#Junk First block implying no IV
+		if encrypt:
+			_in = [c_ubyte(secrets.randbits(8)) for i in range(16)] + _in
+			blocks += 1
+		iv  = [c_ubyte(secrets.randbits(8)) for i in range(16)]
+		
+		_out = []
+		_chr = []
+		
+		prev = iv
+		for i in range(blocks):
+			temp = _in[16*i:16*(i+1)]
+			if encrypt:
+				xor_block = [c_ubyte(a.value^b.value) for a,b in zip(prev, temp)]
+				prev = self.aes.Cipher(xor_block)
+				_out.extend(prev)
+			else:
+				c_out = self.aes.Cipher(temp)
+				_out.extend([c_ubyte(a.value^b.value) for a,b in zip(prev, c_out)])
+				prev = temp
+		if encrypt == False:
+			_out = _out[16:]
+		for c in _out:
+			_chr.append(chr(c.value))
+		return _chr
+	def cfb(self, m, encrypt=True):
+		_in = []
+		for c in m:
+			_in.append(c_ubyte(ord(c)))
+			print('orig {0} ord {1} chr {2} hex {3}'.format(c, ord(c), chr(ord(c)), hex(ord(c))))
+		if len(_in)%16 != 0:
+			_in = _in+[c_ubyte(0)]*(16-(len(_in)%16))
+		blocks = int(len(_in)/16)
+		#self.aes.inverse = False if encrypt else True
+		#print('AES INVERSE %s' % self.aes.inverse)
+		if encrypt:
+			iv  = [c_ubyte(secrets.randbits(8)) for i in range(16)]
+		else:
+			iv = _in[0:16]
+			_in = _in[16:]
+		_out = []
+		_chr = []
+
+		prev = iv
+		for i in range(blocks):
+			temp=_in[16*i:16*(i+1)]
+			if encrypt:
+				c_block = self.aes.Cipher(prev)
+				prev = [c_ubyte(a.value^b.value) for a,b in zip(temp, c_block)]
+				_out.extend(prev)
+			else:
+				c_block = self.aes.Cipher(prev)
+				_out.extend([c_ubyte(a.value^b.value) for a,b in zip(temp, c_block)])
+				prev = temp
+		if encrypt:
+			_out = iv+_out
+		for c in _out:
+			_chr.append(chr(c.value))
+		return _chr
+	def ofb(self, m, encrypt=True):
+		_in = []
+		for c in m:
+			_in.append(c_ubyte(ord(c)))
+			print('orig {0} ord {1} chr {2} hex {3}'.format(c, ord(c), chr(ord(c)), hex(ord(c))))
+		if len(_in)%16 != 0:
+			_in = _in+[c_ubyte(0)]*(16-(len(_in)%16))
+		blocks = int(len(_in)/16)
+		#self.aes.inverse = False if encrypt else True
+		#print('AES INVERSE %s' % self.aes.inverse)
+		if encrypt:
+			iv  = [c_ubyte(secrets.randbits(8)) for i in range(16)]
+		else:
+			iv = _in[0:16]
+			_in = _in[16:]
+		_out = []
+		_chr = []
+
+		prev = iv
+		for i in range(blocks):
+			temp =_in[16*i:16*(i+1)]
+			prev = self.aes.Cipher(prev)
+			_out.extend([c_ubyte(a.value^b.value) for a,b in zip(temp, prev)])
+		if encrypt:
+			_out = iv+_out
+		for c in _out:
+			_chr.append(chr(c.value))
+		return _chr
+	def ctr(self, m, encrypt=True):
+		_in = []
+		for c in m:
+			_in.append(c_ubyte(ord(c)))
+			print('orig {0} ord {1} chr {2} hex {3}'.format(c, ord(c), chr(ord(c)), hex(ord(c))))
+		if len(_in)%16 != 0:
+			_in = _in+[c_ubyte(0)]*(16-(len(_in)%16))
+		blocks = int(len(_in)/16)
+		if encrypt:
+			iv  = [c_ubyte(secrets.randbits(8)) for i in range(16)]
+		else:
+			iv = _in[0:16]
+			_in = _in[16:]
+		
+		ctr = 0	
+		_out = []
+		_chr = []
+	def build_bytearray(self, number):
 		
 if __name__=='__main__':
 	k = AESKey()
@@ -292,7 +397,7 @@ if __name__=='__main__':
 	k.K = [c_ubyte(0x2b), c_ubyte(0x7e), c_ubyte(0x15), c_ubyte(0x16), c_ubyte(0x28), c_ubyte(0xae), c_ubyte(0xd2), c_ubyte(0xa6),
 		c_ubyte(0xab), c_ubyte(0xf7), c_ubyte(0x15), c_ubyte(0x88), c_ubyte(0x09), c_ubyte(0xcf), c_ubyte(0x4f), c_ubyte(0x3c)]
 	bc = BlockCipher(key=k.key())
-	ori = [c_ubyte(0x32), c_ubyte(0x43), c_ubyte(0xf6), c_ubyte(0xa8), c_ubyte(0x88), c_ubyte(0x5a), c_ubyte(0x30), c_ubyte(0x8d),
+	ori = [c_ubyte(0x32), c_ubyte(0x43), c_ubyte(0xf6), c_ubyte(0xa8), c_ubyte(0x88), cs_ubyte(0x5a), c_ubyte(0x30), c_ubyte(0x8d),
 		c_ubyte(0x31), c_ubyte(0x31), c_ubyte(0x98), c_ubyte(0xa2), c_ubyte(0xe0), c_ubyte(0x37), c_ubyte(0x07), c_ubyte(0x34)]
 	'''
 	'''
@@ -304,9 +409,24 @@ if __name__=='__main__':
 	for i in range(len(ori)):
 		ori[i] = chr(ori[i].value)
 	'''
-	ori = 'hello'
+	ori = '0102030405060708090a0b0c0d0e0f'
 	bc = BlockCipher(key=k.key())
 	ciphertext = bc.ecb(ori, encrypt=True)
 	plaintext = bc.ecb(ciphertext, encrypt=False)
-	print('Ciphertext %s' % ciphertext)
-	print('Plaintext %s' % plaintext)	
+	print('Ciphertext ECB: %s' % ciphertext)
+	print('Plaintext ECB: %s' % plaintext)
+	
+	ciphertext = bc.cbc(ori, encrypt=True)
+	plaintext = bc.cbc(ciphertext, encrypt=False)
+	print('Ciphertext CBC: %s' % ciphertext)
+	print('Plaintext CBC: %s' % plaintext)
+	
+	ciphertext = bc.cfb(ori, encrypt=True)
+	plaintext = bc.cfb(ciphertext, encrypt=False)
+	print('Ciphertext CFB: %s' % ciphertext)
+	print('Plaintext CFB: %s' % plaintext)
+	
+	ciphertext = bc.ofb(ori, encrypt=True)
+	plaintext = bc.ofb(ciphertext, encrypt=False)
+	print('Ciphertext OFB: %s' % ciphertext)
+	print('Plaintext OFB: %s' % plaintext)
