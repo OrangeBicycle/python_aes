@@ -1,27 +1,36 @@
 import secrets
 import io
 import hashlib
+import unittest
 from ctypes import c_ubyte
 
 class AESKey:
-	def __init__(self):
-		self.length = 128
+	def __init__(self, length=None):
+		self.length = 128 if length==None or length not in [128, 192, 256] else length
 		self.byte_length = int(self.length/8)
 		self.K = [c_ubyte(0)]*self.byte_length
 	def generate(self):
-		self.K = [c_ubyte(secrets.randbits(8)) for i in range(int(128/8))]
+		self.K = [c_ubyte(secrets.randbits(8)) for i in range(self.byte_length)]
 	def display(self):
 		for bit in self.K:
 			print('%d ' % bit.value)
 	def write(self, f):
 		with open(f, 'w') as output:
-			output.write('ACLAES:', (bit.value for bit in self.K))
+			output.write('ACLAES:'.join(str(bit.value) for bit in self.K))
+	def read(self, f):
+		with open(f, 'r') as f_input:
+			for line in f_input.readlines():
+				if 'ACLAES:' in line:
+					r_line = line.split(':')
+					r_line = line[1]
+					r_line = r_line.strip()
+		return None
 	def key(self):
 		return self.K
 class AESCipher:
 	def __init__(self, key=None):
-		self.length  = 128
-		self.K       = [c_ubyte(0)]*self.length if key==None else key
+		self.length  = 128 if key==None else len(key)*8
+		self.K       = [c_ubyte(0)]*int(self.length/8) if key==None else key
 		self.Nb      = {128:4, 192:4, 256:4}
 		self.Nk      = {128:4, 192:6, 256:8}
 		self.Nr      = {128:10, 192:12, 256:14}
@@ -255,7 +264,6 @@ class AESCipher:
 			print('----------------')
 class BlockCipher:
 	def __init__(self, key=None):
-		self.mode = 'ECB'
 		self.aes  = AESCipher(key=key)
 	def ecb(self, m, encrypt=True):
 		_in = []
@@ -281,9 +289,9 @@ class BlockCipher:
 		for i in range(blocks):
 			_out.extend(self.aes.Cipher(_in[16*i:16*(i+1)]))
 		if encrypt == False:
-			digest = _out[len(_out)-32:]
+			digest = self.array_to_string(_out[len(_out)-32:])
 			_out = _out[:len(_out)-32]
-			digest = self.hash_string(self.array_to_string(digest))
+			#digest = self.hash_string(self.array_to_string(digest))
 			#for c in _out:
 			#	_chr.append(chr(c.value))
 			_str = self.array_to_string(_out)
@@ -300,13 +308,19 @@ class BlockCipher:
 			_str = self.array_to_string(_out)	
 		return _str
 	def cbc(self, m, encrypt=True):
-		sha = bytes_to_array(hash_string(m))
 		_in = []
+		try:
+			m = bytes(m, 'utf-8')
+		except TypeError:
+			pass
 		for c in m:
-			_in.append(c_ubyte(ord(c)))
-			print('orig {0} ord {1} chr {2} hex {3}'.format(c, ord(c), chr(ord(c)), hex(ord(c))))
+			_in.append(c_ubyte(c))
+			#print('orig {0} ord {1} chr {2} hex {3}'.format(c, ord(c), chr(ord(c)), hex(ord(c))))
 		if len(_in)%16 != 0:
 			_in = _in+[c_ubyte(0)]*(16-(len(_in)%16))
+		if encrypt:
+			sha = self.bytes_to_array(self.hash_string(self.array_to_string(_in)))
+			_in = _in + sha
 		blocks = int(len(_in)/16)
 		self.aes.inverse = False if encrypt else True
 		print('AES INVERSE %s' % self.aes.inverse)
@@ -332,19 +346,39 @@ class BlockCipher:
 				prev = temp
 		if encrypt == False:
 			_out = _out[16:]
-		for c in _out:
-			_chr.append(chr(c.value))
-		return _chr
+			digest = self.array_to_string(_out[len(_out)-32:])
+			_out = _out[:len(_out)-32]
+			#digest = self.hash_string(self.array_to_string(digest))
+			#for c in _out:
+			#	_chr.append(chr(c.value))
+			_str = self.array_to_string(_out)
+			digest2 = self.hash_string(_str)
+			print('DIGEST 1: %s' % digest)
+			print('DIGEST 2: %s' % digest2)
+			print(digest==digest2)
+			if digest != digest2:
+				print(self.array_to_string(_out))
+				return None
+		else:
+			#for c in _out:
+			#	_chr.append(chr(c.value))
+			_str = self.array_to_string(_out)	
+		return _str
 	def cfb(self, m, encrypt=True):
 		_in = []
+		try:
+			m = bytes(m, 'utf-8')
+		except TypeError:
+			pass
 		for c in m:
-			_in.append(c_ubyte(ord(c)))
-			print('orig {0} ord {1} chr {2} hex {3}'.format(c, ord(c), chr(ord(c)), hex(ord(c))))
+			_in.append(c_ubyte(c))
+			#print('orig {0} ord {1} chr {2} hex {3}'.format(c, ord(c), chr(ord(c)), hex(ord(c))))
 		if len(_in)%16 != 0:
 			_in = _in+[c_ubyte(0)]*(16-(len(_in)%16))
+		if encrypt:
+			sha = self.bytes_to_array(self.hash_string(self.array_to_string(_in)))
+			_in = _in + sha
 		blocks = int(len(_in)/16)
-		#self.aes.inverse = False if encrypt else True
-		#print('AES INVERSE %s' % self.aes.inverse)
 		if encrypt:
 			iv  = [c_ubyte(secrets.randbits(8)) for i in range(16)]
 		else:
@@ -366,16 +400,40 @@ class BlockCipher:
 				prev = temp
 		if encrypt:
 			_out = iv+_out
-		for c in _out:
-			_chr.append(chr(c.value))
-		return _chr
+		
+		if encrypt == False:
+			digest = self.array_to_string(_out[len(_out)-32:])
+			_out = _out[:len(_out)-32]
+			#digest = self.hash_string(self.array_to_string(digest))
+			#for c in _out:
+			#	_chr.append(chr(c.value))
+			_str = self.array_to_string(_out)
+			digest2 = self.hash_string(_str)
+			print('DIGEST 1: %s' % digest)
+			print('DIGEST 2: %s' % digest2)
+			print(digest==digest2)
+			if digest != digest2:
+				print(self.array_to_string(_out))
+				return None
+		else:
+			#for c in _out:
+			#	_chr.append(chr(c.value))
+			_str = self.array_to_string(_out)	
+		return _str
 	def ofb(self, m, encrypt=True):
 		_in = []
+		try:
+			m = bytes(m, 'utf-8')
+		except TypeError:
+			pass
 		for c in m:
-			_in.append(c_ubyte(ord(c)))
-			print('orig {0} ord {1} chr {2} hex {3}'.format(c, ord(c), chr(ord(c)), hex(ord(c))))
+			_in.append(c_ubyte(c))
+			#print('orig {0} ord {1} chr {2} hex {3}'.format(c, ord(c), chr(ord(c)), hex(ord(c))))
 		if len(_in)%16 != 0:
 			_in = _in+[c_ubyte(0)]*(16-(len(_in)%16))
+		if encrypt:
+			sha = self.bytes_to_array(self.hash_string(self.array_to_string(_in)))
+			_in = _in + sha
 		blocks = int(len(_in)/16)
 		#self.aes.inverse = False if encrypt else True
 		#print('AES INVERSE %s' % self.aes.inverse)
@@ -394,16 +452,39 @@ class BlockCipher:
 			_out.extend([c_ubyte(a.value^b.value) for a,b in zip(temp, prev)])
 		if encrypt:
 			_out = iv+_out
-		for c in _out:
-			_chr.append(chr(c.value))
-		return _chr
+		if encrypt == False:
+			digest = self.array_to_string(_out[len(_out)-32:])
+			_out = _out[:len(_out)-32]
+			#digest = self.hash_string(self.array_to_string(digest))
+			#for c in _out:
+			#	_chr.append(chr(c.value))
+			_str = self.array_to_string(_out)
+			digest2 = self.hash_string(_str)
+			print('DIGEST 1: %s' % digest)
+			print('DIGEST 2: %s' % digest2)
+			print(digest==digest2)
+			if digest != digest2:
+				print(self.array_to_string(_out))
+				return None
+		else:
+			#for c in _out:
+			#	_chr.append(chr(c.value))
+			_str = self.array_to_string(_out)	
+		return _str
 	def ctr(self, m, encrypt=True):
 		_in = []
+		try:
+			m = bytes(m, 'utf-8')
+		except TypeError:
+			pass
 		for c in m:
-			_in.append(c_ubyte(ord(c)))
-			print('orig {0} ord {1} chr {2} hex {3}'.format(c, ord(c), chr(ord(c)), hex(ord(c))))
+			_in.append(c_ubyte(c))
+			#print('orig {0} ord {1} chr {2} hex {3}'.format(c, ord(c), chr(ord(c)), hex(ord(c))))
 		if len(_in)%16 != 0:
 			_in = _in+[c_ubyte(0)]*(16-(len(_in)%16))
+		if encrypt:
+			sha = self.bytes_to_array(self.hash_string(self.array_to_string(_in)))
+			_in = _in + sha
 		blocks = int(len(_in)/16)
 		if encrypt:
 			iv  = [c_ubyte(secrets.randbits(8)) for i in range(16)]
@@ -424,9 +505,25 @@ class BlockCipher:
 			_out.extend([c_ubyte(a.value^b.value) for a,b in zip(temp, c_block)])
 		if encrypt:
 			_out = iv+_out
-		for c in _out:
-			_chr.append(chr(c.value))
-		return _chr
+		if encrypt == False:
+			digest = self.array_to_string(_out[len(_out)-32:])
+			_out = _out[:len(_out)-32]
+			#digest = self.hash_string(self.array_to_string(digest))
+			#for c in _out:
+			#	_chr.append(chr(c.value))
+			_str = self.array_to_string(_out)
+			digest2 = self.hash_string(_str)
+			print('DIGEST 1: %s' % digest)
+			print('DIGEST 2: %s' % digest2)
+			print(digest==digest2)
+			if digest != digest2:
+				print(self.array_to_string(_out))
+				return None
+		else:
+			#for c in _out:
+			#	_chr.append(chr(c.value))
+			_str = self.array_to_string(_out)	
+		return _str
 	def add_ctr(self, ctr):
 		temp = ctr
 		for i in range(len(temp)-1, -1, -1):
@@ -448,10 +545,60 @@ class BlockCipher:
 		h.update(m)
 		digest = h.digest()
 		return digest
+class AESKeyTestCase(unittest.TestCase):
+	def testGenerate():
+		pass
+	def testWriteAndRead():
+		pass
+class AESTestCase(unittest.TestCase):
+	def testRcon():
+		pass
+	def testXTime():
+		pass
+	def testFieldMultiply():
+		pass
+	def testSbox():
+		pass
+	def testRotWord():
+		pass
+	def testSubWord():
+		pass
+	def testKeyExpansion():
+		pass
+	def testAddRoundKey():
+		pass
+	def testMixColumns():
+		pass
+	def testShiftRows():
+		pass
+	def testSubBytes():
+		pass
+	def testCipher():
+		pass
+class BlockCipherTestCase(unittest.TestCase):	
+	def testArray_To_String():
+		pass
+	def testBytes_To_Array():
+		pass
+	def testHash_String():
+		pass
+	def testAdd_Ctr():
+		pass
+	def testCTR():
+		pass
+	def testOFB():
+		pass
+	def testCFB():
+		pass
+	def testCBC():
+		pass
+	def testECB():
+		pass
 if __name__=='__main__':
-	k = AESKey()
+	k = AESKey(length=256)
 	k.generate()
 	k.display()
+	k.write('test.key')
 	'''
 	k.K = [c_ubyte(0x2b), c_ubyte(0x7e), c_ubyte(0x15), c_ubyte(0x16), c_ubyte(0x28), c_ubyte(0xae), c_ubyte(0xd2), c_ubyte(0xa6),
 		c_ubyte(0xab), c_ubyte(0xf7), c_ubyte(0x15), c_ubyte(0x88), c_ubyte(0x09), c_ubyte(0xcf), c_ubyte(0x4f), c_ubyte(0x3c)]
@@ -474,16 +621,16 @@ if __name__=='__main__':
 	plaintext = bc.ecb(ciphertext, encrypt=False)
 	print('Ciphertext ECB: %s' % ciphertext)
 	print('Plaintext ECB: %s' % plaintext)
-	'''	
+	
 	ciphertext = bc.cbc(ori, encrypt=True)
 	plaintext = bc.cbc(ciphertext, encrypt=False)
 	print('Ciphertext CBC: %s' % ciphertext)
 	print('Plaintext CBC: %s' % plaintext)
-	
+
 	ciphertext = bc.cfb(ori, encrypt=True)
 	plaintext = bc.cfb(ciphertext, encrypt=False)
 	print('Ciphertext CFB: %s' % ciphertext)
-	print('Plaintext CFB: %s' % plaintext)
+	print('Plaintext CFB: %s' % plaintext)	
 	
 	ciphertext = bc.ofb(ori, encrypt=True)
 	plaintext = bc.ofb(ciphertext, encrypt=False)
@@ -495,5 +642,3 @@ if __name__=='__main__':
 	print('Ciphertext CTR: %s' % ciphertext)
 	print('Plaintext CTR: %s' % plaintext)
 
-	print(bc.array_to_string(plaintext))
-	'''
