@@ -2,6 +2,7 @@ import secrets
 import io
 import hashlib
 import unittest
+from binascii import unhexlify
 from ctypes import c_ubyte
 
 class AESKey:
@@ -12,19 +13,22 @@ class AESKey:
 	def generate(self):
 		self.K = [c_ubyte(secrets.randbits(8)) for i in range(self.byte_length)]
 	def display(self):
-		for bit in self.K:
-			print('%d ' % bit.value)
+		k = ''.join(format(bit.value, 'x') for bit in self.K)
+		print('AES-{0} Key: {1}'.format(self.length, k))
 	def write(self, f):
 		with open(f, 'w') as output:
-			output.write('ACLAES:'.join(str(bit.value) for bit in self.K))
+			key = ''.join(format(bit.value, 'x') for bit in self.K)
+			output.write('ACLAES:%s' % key)
 	def read(self, f):
 		with open(f, 'r') as f_input:
-			for line in f_input.readlines():
-				if 'ACLAES:' in line:
-					r_line = line.split(':')
-					r_line = line[1]
-					r_line = r_line.strip()
-		return None
+			key = f_input.read()
+			key = key.split(':')[1]
+			key = list(unhexlify(key))
+			self.K = [c_ubyte(i) for i in key]
+			self.byte_length = len(self.K)
+			self.length = self.byte_length*8
+			if self.length not in [128, 192, 256]:
+				raise IOError('Error importing key. %d is not a valid size' % self.length)
 	def key(self):
 		return self.K
 class AESCipher:
@@ -524,6 +528,17 @@ class BlockCipher:
 			#	_chr.append(chr(c.value))
 			_str = self.array_to_string(_out)	
 		return _str
+	def cipher_from_string(self, m, bc, encrypt=True):
+		if bc == 'ECB':
+			return self.ecb(m, encrypt)
+		elif bc == 'CBC':
+			return self.cbc(m, encrypt)
+		elif bc == 'CFB':
+			return self.cfb(m, encrypt)
+		elif bc == 'OFB':
+			return self.ofb(m, encrypt)
+		else:
+			return self.ctr(m, encrypt)
 	def add_ctr(self, ctr):
 		temp = ctr
 		for i in range(len(temp)-1, -1, -1):
